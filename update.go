@@ -1,14 +1,14 @@
 package main
 
 import (
-	"time"
 	tea "github.com/charmbracelet/bubbletea"
+	"time"
 )
 
 type tickMsg time.Time
 type sysInfoMsg struct {
-	cpu float64
-	mem float64
+	cpu  float64
+	mem  float64
 	disk float64
 }
 type batteryMsg struct {
@@ -16,7 +16,7 @@ type batteryMsg struct {
 	state string
 }
 type networkMsg struct {
-	name string
+	name  string
 	state string
 }
 
@@ -30,8 +30,8 @@ func getSystemInfo() tea.Cmd {
 	return func() tea.Msg {
 		cpu, mem, disk := fetchSystemStats()
 		return sysInfoMsg{
-			cpu: cpu,
-			mem: mem,
+			cpu:  cpu,
+			mem:  mem,
 			disk: disk,
 		}
 	}
@@ -50,10 +50,15 @@ func getBatteryInfo() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseLeft {
+			//TODO write mouse logic
+		}
+
 	case tea.WindowSizeMsg:
 		switch msg.String() {
-			case "q", "ctrl+c":
-				return m, tea.Quit
+		case "q", "ctrl+c":
+			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -65,7 +70,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tickCmd(),
 			getSystemInfo(),
 			getBatteryInfo(),
-			)
+		)
 
 	case sysInfoMsg:
 		m.cpuUsage = msg.cpu
