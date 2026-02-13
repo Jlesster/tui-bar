@@ -3,11 +3,14 @@ package main
 import (
 	"fmt"
 	"os"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
+
 	p := tea.NewProgram(
-		initialModel(),
+		initModel(),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

@@ -13,7 +13,7 @@ func (m model) View() string {
 		return "Initializing.."
 	}
 
-	workspaces := renderWorkspaces(m.activeWorkspace)
+	workspaces := renderWorkspaces(m.activeWorkspace, m.hypr)
 	clock := renderClock(m.currTime)
 	sysInfo := renderSystemInfo(m)
 
@@ -39,18 +39,40 @@ func (m model) View() string {
 	return statusbar
 }
 
-func renderWorkspaces(active int) string {
+func renderWorkspaces(active int, hypr *HyprlandClient) string {
 	workspaces := []string{}
 
-	for i := 1; i <= 4; i++ {
-		ws := fmt.Sprintf("%d", i)
-		if i == active {
-			workspaces = append(workspaces, workspaceActiveStyle.Render(ws))
-		} else {
-			workspaces = append(workspaces, workspaceStyle.Render(ws))
+	if hypr != nil {
+		wsList, err := hypr.GetWorkspaces()
+		if err == nil {
+			wsMap := make(map[int]bool)
+			for _, ws := range wsList {
+				wsMap[ws.ID] = true
+			}
+
+			for i := 1; i <= 10; i++ {
+				if !wsMap[1] {
+					continue
+				}
+				ws := fmt.Sprintf("%d", i)
+				if i == active {
+					workspaces = append(workspaces, workspaceActiveStyle.Render(ws))
+				} else {
+					workspaces = append(workspaces, workspaceStyle.Render(ws))
+				}
+			}
 		}
 	}
-
+	if len(workspaces) == 0 {
+		for i := 1; i <= 4; i++ {
+			ws := fmt.Sprintf("%d", i)
+			if i == active {
+				workspaces = append(workspaces, workspaceActiveStyle.Render(ws))
+			} else {
+				workspaces = append(workspaces, workspaceStyle.Render(ws))
+			}
+		}
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, workspaces...)
 }
 

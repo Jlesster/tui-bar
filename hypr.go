@@ -7,12 +7,8 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 type HyprlandWorkspace struct {
@@ -79,7 +75,7 @@ type HyprlandClient struct {
 }
 
 func NewHyprlandClient() (*HyprlandClient, error) {
-	signature := os.Getenv("HYPRLAND_INSTANCE_SINGATURE")
+	signature := os.Getenv("HYPRLAND_INSTANCE_SIGNATURE")
 
 	if signature == "" {
 		return nil, fmt.Errorf("not running in hyprland")
@@ -92,7 +88,7 @@ func NewHyprlandClient() (*HyprlandClient, error) {
 }
 
 func (hc *HyprlandClient) sendCommand(command string) ([]byte, error) {
-	socketPath := fmt.Sprint("/tmp/hypr/%s/.socket.sock", hc.signature)
+	socketPath := fmt.Sprintf("/tmp/hypr/%s/.socket.sock", hc.signature)
 
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
@@ -165,7 +161,7 @@ func (hc *HyprlandClient) GetWindows() ([]HyprlandWindow, error) {
 }
 
 func (hc *HyprlandClient) GetMonitors() ([]HyprlandMonitor, error) {
-	data, err := hc.sendCommand("j/,monitors")
+	data, err := hc.sendCommand("j/monitors")
 	if err != nil {
 		return nil, err
 	}
@@ -191,8 +187,8 @@ func (hc *HyprlandClient) GetActiveMonitor() (*HyprlandMonitor, error) {
 }
 
 func (hc *HyprlandClient) SwitchWorkspace(workspace int) error {
-	_, err := hc.sendCommand(cmd)
 	cmd := fmt.Sprintf("dispatch workspace %d", workspace)
+	_, err := hc.sendCommand(cmd)
 	return err
 }
 
@@ -235,4 +231,158 @@ func (hc *HyprlandClient) MoveWorkspaceToMontior(workspace int, monitor string) 
 	return err
 }
 
-//TODO event socket listeners
+func (hc *HyprlandClient) StartEventListener() error {
+	socketPath := fmt.Sprintf("/tmp/hypr/%s/.socket2.sock", hc.signature)
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("failed to connect to event socket: %v", err)
+	}
+	hc.eventConn = conn
+
+	go hc.readEvents()
+	log.Println("Connected to Hyprland event socket")
+	return nil
+}
+
+func (hc *HyprlandClient) readEvents() {
+	defer hc.eventConn.Close()
+
+	scanner := bufio.NewScanner(hc.eventConn)
+	for scanner.Scan() {
+		line := scanner.Text()
+		event := hc.parseEvent(line)
+		if event != nil {
+			hc.dispatchEvent(*event)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Error reading from event socket: %v", err)
+	}
+}
+
+func (hc *HyprlandClient) parseEvent(line string) *HyprlandEvent {
+	parts := strings.SplitN(line, ">>", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+
+	eventType := parts[0]
+	eventData := strings.Split(parts[1], ",")
+
+	return &HyprlandEvent{
+		Type: eventType,
+		Data: eventData,
+	}
+}
+
+func (hc *HyprlandClient) dispatchEvent(event HyprlandEvent) {
+	hc.eventMux.RLock()
+	defer hc.eventMux.RUnlock()
+
+	for _, listener := range hc.listeners {
+		select {
+		case listener <- event:
+		default:
+		}
+	}
+}
+
+func (hc *HyprlandClient) Subscribe() chan HyprlandEvent {
+	hc.eventMux.Lock()
+	defer hc.eventMux.Unlock()
+
+	ch := make(chan HyprlandEvent, 100)
+	hc.listeners = append(hc.listeners, ch)
+	return ch
+}
+
+func (hc *HyprlandClient) Unsubscribe(ch chan HyprlandEvent) {
+	hc.eventMux.Lock()
+	defer hc.eventMux.Unlock()
+
+	for i, listener := range hc.listeners {
+		if listener == ch {
+			hc.listeners = append(hc.listeners[:i], hc.listeners[i+1:]...)
+			close(ch)
+			break
+		}
+	}
+}
+
+func (hc *HyprlandClient) Close() {
+	if hc.eventConn != nil {
+		hc.eventConn.Close()
+	}
+	hc.eventMux.Lock()
+	for _, ch := range hc.listeners {
+		close(ch)
+	}
+	hc.listeners = nil
+	hc.eventMux.Unlock()
+}
+
+// helpers
+func getActiveWorkspace() int {
+	client, err := NewHyprlandClient()
+	if err != nil {
+		return 1
+	}
+	ws, err := client.GetActiveWorkspace()
+	if err != nil {
+		return 1
+	}
+	return ws.ID
+}
+
+func getActiveWindow() string {
+	client, err := NewHyprlandClient()
+	if err != nil {
+		return ""
+	}
+
+	win, err := client.GetActiveWindow()
+	if err != nil {
+		return ""
+	}
+	if win.Title != "" {
+		return win.Title
+	}
+	return win.Class
+}
+
+func (hc *HyprlandClient) GetWorkspaceWindows(workspaceID int) ([]HyprlandWindow, error) {
+	windows, err := hc.GetWindows()
+	if err != nil {
+		return nil, err
+	}
+
+	var wsWindows []HyprlandWindow
+	for _, win := range windows {
+		if win.Workspace.ID == workspaceID {
+			wsWindows = append(wsWindows, win)
+		}
+	}
+	return wsWindows, nil
+}
+
+func (hc *HyprlandClient) IsWorkspaceEmpty(workspaceID int) (bool, error) {
+	windows, err := hc.GetWorkspaceWindows(workspaceID)
+	if err != nil {
+		return false, err
+	}
+	return len(windows) == 0, nil
+}
+
+func (hc *HyprlandClient) GetWorkspaceByName(name string) (*HyprlandWorkspace, error) {
+	workspaces, err := hc.GetWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	for _, ws := range workspaces {
+		if ws.Name == name {
+			return &ws, nil
+		}
+	}
+	return nil, fmt.Errorf("workspace not found: %s", name)
+}

@@ -1,11 +1,12 @@
 package main
 
 import (
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/shirou/gopsutil/v3/disk"
-	"github.com/distatus/battery"
 	"math"
+
+	"github.com/distatus/battery"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 func fetchSystemStats() (float64, float64, float64) {
@@ -37,12 +38,20 @@ func fetchBatteryStats() (int, string) {
 
 	bat := batteries[0]
 	level := int(bat.Current / bat.Full * 100)
+
+	stateStr := bat.State.String()
 	state := "discharging"
 
-	if bat.State == battery.Charging {
+	// Fix: Use the State field correctly
+	switch stateStr {
+	case "Charging":
 		state = "charging"
-	} else if bat.State == battery.Full {
+	case "Full":
 		state = "full"
+	case "Discharging":
+		state = "discharging"
+	default:
+		state = "unknown"
 	}
 	return level, state
 }

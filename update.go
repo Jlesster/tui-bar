@@ -19,6 +19,10 @@ type networkMsg struct {
 	name  string
 	state string
 }
+type hyprlandMsg struct {
+	activeWorkspace int
+	windowTitle     string
+}
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -47,6 +51,27 @@ func getBatteryInfo() tea.Cmd {
 	}
 }
 
+func getNetworkInfo() tea.Cmd {
+	return func() tea.Msg {
+		name, state := fetchNetworkInfo()
+		return networkMsg{
+			name:  name,
+			state: state,
+		}
+	}
+}
+
+func getHyprlandInfo() tea.Cmd {
+	return func() tea.Msg {
+		ws := getActiveWorkspace()
+		win := getActiveWindow()
+		return hyprlandMsg{
+			activeWorkspace: ws,
+			windowTitle:     win,
+		}
+	}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -55,7 +80,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			//TODO write mouse logic
 		}
 
-	case tea.WindowSizeMsg:
+	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -70,6 +95,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tickCmd(),
 			getSystemInfo(),
 			getBatteryInfo(),
+			getNetworkInfo(),
+			getHyprlandInfo(),
 		)
 
 	case sysInfoMsg:
@@ -84,6 +111,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case networkMsg:
 		m.netName = msg.name
 		m.netState = msg.state
+
+	case hyprlandMsg:
+		m.activeWorkspace = msg.activeWorkspace
+		m.windowTitle = msg.windowTitle
 	}
 	return m, nil
 }
